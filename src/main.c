@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include "stm32f446xx.h"
+#include "stm32f411xe.h"
 
 #include "systick.h"
 #include "led.h"
@@ -28,7 +28,7 @@ int main(void) {
         start_time = millis();
         while(busyFlag);
         busyFlag = 1;
-        current_buffer = DMA2_Stream2->CR | DMA_SxCR_CT;
+        current_buffer = DMA1_Stream4->CR | DMA_SxCR_CT;
         nextBuffer = current_buffer ? buffer2 : buffer1;
         while(busyFlag);
         busyFlag = 1;
@@ -52,7 +52,7 @@ static void init(void) {
     initGPIO();
     initDMA();
     DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM5_STOP;
-    DBGMCU->APB2FZ |= DBGMCU_APB2_FZ_DBG_TIM8_STOP; 
+    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM3_STOP;
     initTimers();
     busyFlag = 1;
 }
@@ -99,7 +99,7 @@ static void initGPIO(void) {
 
 static void initDMA(void) {
     /*
-     * Channel 7
+     * Channel 5
      * Double Buffer
      * Very high priority
      * Memory Inc
@@ -107,20 +107,23 @@ static void initDMA(void) {
      * Memory to Peripheral
      */
 
-    RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
 
-    DMA2_Stream2->CR |= (7<<DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DBM | DMA_SxCR_PL_0 | DMA_SxCR_PL_1 | DMA_SxCR_MINC | DMA_SxCR_DIR_0;
-    DMA2_Stream2->NDTR = 0x4000; // 64 col, 8 Bits per colour channel, 32 rows
-    DMA2_Stream2->PAR = (uint32_t)&(GPIOC->ODR);
-    DMA2_Stream2->M0AR = (uint32_t)buffer1;
-    DMA2_Stream2->M1AR = (uint32_t)buffer2;
-    DMA2_Stream2->FCR |= DMA_SxFCR_DMDIS; // turn on the FIFO
-    DMA2_Stream2->CR |= DMA_SxCR_TCIE; // enable the transfer complete interrupt
-    DMA2->LIFCR |= DMA_LIFCR_CTCIF2; // make sure the interrupt flag is clear
+    DMA1_Stream4->CR |= (5<<DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DBM | DMA_SxCR_PL_0 | DMA_SxCR_PL_1 | DMA_SxCR_MINC | DMA_SxCR_DIR_0;
+    DMA1_Stream4->NDTR = 0x4000; // 64 col, 8 Bits per colour channel, 32 rows
+    //DMA1_Stream4->PAR = 0;
+    DMA1_Stream4->PAR = (uint32_t)&(GPIOC->ODR);
+    DMA1_Stream4->M0AR = (uint32_t)buffer1;
+    DMA1_Stream4->M1AR = (uint32_t)buffer2;
+    DMA1_Stream4->FCR |= DMA_SxFCR_DMDIS; // turn on the FIFO
+    DMA1->HIFCR |= DMA_HIFCR_CTEIF4; // make sure the interrupt flag is clear
+    DMA1->HIFCR |= DMA_HIFCR_CTCIF4; // make sure the interrupt flag is clear
+    DMA1_Stream4->CR |= DMA_SxCR_TCIE; // enable the transfer complete interrupt
+    DMA1_Stream4->CR |= DMA_SxCR_TEIE; // enable the transfer complete interrupt
 
-    NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+    NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 
-    DMA2_Stream2->CR |= DMA_SxCR_EN; // enable the stream
+    DMA1_Stream4->CR |= DMA_SxCR_EN; // enable the stream
 }
 
 static void initClock(void) {
@@ -136,21 +139,13 @@ static void initClock(void) {
     RCC->APB1ENR |= RCC_APB1ENR_PWREN;
 
     // Enable the HSE in bypass mode (there is a 8MHz signal coming from the ST-LINK)
-    RCC->CR |= RCC_CR_HSEBYP | RCC_CR_HSEON;
+    RCC->CR |= RCC_CR_HSEON;
     while(!(RCC->CR & RCC_CR_HSERDY));
 
     // Set the main PLL M, N, P, Q, R, and HSE as the input
-    // M = 4, N = 180, P = 2 = 180MHz SYSCLK
-    // Q = 8, R = 4 (Q & R not used)
-    RCC->PLLCFGR = RCC_PLLCFGR_PLLM_2 | (180 << RCC_PLLCFGR_PLLN_Pos) | (0 << RCC_PLLCFGR_PLLP_Pos) | RCC_PLLCFGR_PLLQ_3 | RCC_PLLCFGR_PLLR_2 | RCC_PLLCFGR_PLLSRC_HSE;
+    // M = 4, N = 96, P = 2 = 96MHz SYSCLK
+    RCC->PLLCFGR = RCC_PLLCFGR_PLLM_2 | (96 << RCC_PLLCFGR_PLLN_Pos) | (0 << RCC_PLLCFGR_PLLP_Pos) |  RCC_PLLCFGR_PLLSRC_HSE;
     RCC->CR |= RCC_CR_PLLON;
-
-    // enable and switch on overdrive
-    PWR->CR |= PWR_CR_ODEN;
-    while(!(PWR->CSR & PWR_CSR_ODRDY));
-
-    PWR->CR |= PWR_CR_ODSWEN;
-    while(!(PWR->CSR & PWR_CSR_ODSWRDY));
 
     // Set the flash wait time
     FLASH->ACR |= FLASH_ACR_LATENCY_5WS;
@@ -159,45 +154,39 @@ static void initClock(void) {
     }
 
     // set APB prescalers
-    // APB1 = 4, APB2 = 2
-    // 45MHz and 90Mhz
-    RCC->CFGR |= RCC_CFGR_PPRE1_DIV4 | RCC_CFGR_PPRE2_DIV2;
+    // APB1 = 2, APB2 = 1
+    // 48MHz and 96Mhz
+    RCC->CFGR |= RCC_CFGR_PPRE1_DIV2 | RCC_CFGR_PPRE2_DIV1;
     
     // wait for PLL lock
     while(!(RCC->CR & RCC_CR_PLLRDY));
 
     // Switch SYSCLK to PLL
     RCC->CFGR |= RCC_CFGR_SW_PLL;
-
-
-    SystemCoreClockUpdate();
-    
-    // set TIMPRE so the timers run at 180MHz
-    RCC->DCKCFGR |= RCC_DCKCFGR_TIMPRE;
 }
 
 static void initTimers(void) {
-    // Timer 8, running 9Mhz 50% duty cycle
+    // Timer 3, running 9Mhz 50% duty cycle
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
     
     GPIOC->MODER |= GPIO_MODER_MODE6_1; // PC6 in AF mode
     GPIOC->OSPEEDR |= GPIO_OSPEEDR_OSPEED6_0 | GPIO_OSPEEDR_OSPEED6_1; // high speed
-    GPIOC->AFR[0] |= (0x3U << GPIO_AFRL_AFSEL6_Pos); // AF3 for PC6 is TIM8_CH1
+    GPIOC->AFR[0] |= (0x2U << GPIO_AFRL_AFSEL6_Pos); // AF2 for PC6 is TIM3_CH1
 
-    RCC->APB2ENR |= RCC_APB2ENR_TIM8EN;
+    RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
     
-    TIM8->ARR = 19;
-    TIM8->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2; //PWM mode 1
-    TIM8->DIER |= TIM_DIER_CC1DE; // DMA request on CH1 (falling edge of clock)
-    TIM8->CCR1 = 10;
-    TIM8->CCER |= TIM_CCER_CC1E; // OC1 enabled
+    TIM3->ARR = 9;
+    TIM3->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2; //PWM mode 1
+    TIM3->DIER |= TIM_DIER_CC1DE; // DMA request on CH1 (falling edge of clock)
+    TIM3->CCR1 = 5;
+    TIM3->CCER |= TIM_CCER_CC1E; // OC1 enabled
 
-    TIM8->BDTR |= TIM_BDTR_MOE; // Main output enabled.. if this isn't set, there is no output on the pins!
+    TIM3->BDTR |= TIM_BDTR_MOE; // Main output enabled.. if this isn't set, there is no output on the pins!
 
-    TIM8->PSC = PRESCALE; // scale down for testing
-    TIM8->EGR |= TIM_EGR_UG; // trigger a UEV to update the preload, auto-reload, and capture-compare shadow registers
-    TIM8->SR = 0;
-    TIM8->CR2 |= TIM_CR2_MMS_1; // Master mode - update
+    TIM3->PSC = PRESCALE; // scale down for testing
+    TIM3->EGR |= TIM_EGR_UG; // trigger a UEV to update the preload, auto-reload, and capture-compare shadow registers
+    TIM3->SR = 0;
+    TIM3->CR2 |= TIM_CR2_MMS_1; // Master mode - update
 
     // Timer 5
     // LAT on CH1, output to PA0
@@ -212,16 +201,16 @@ static void initTimers(void) {
 
     RCC->APB1ENR |= RCC_APB1ENR_TIM5EN;
     
-    TIM5->SMCR |= TIM_SMCR_TS_1 | TIM_SMCR_TS_0; // select ITR3 as the trigger input (for TIM5, this is TIM8) 
+    TIM5->SMCR |= TIM_SMCR_TS_0; // select ITR1 as the trigger input (for TIM5, this is TIM3)
     TIM5->SMCR |= TIM_SMCR_SMS_2 | TIM_SMCR_SMS_1; // slave mode set to trigger mode
-    TIM5->ARR = 1279;
+    TIM5->ARR = 639;
     TIM5->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2; //PWM mode 1
     TIM5->CCR1 = 12;
     TIM5->CCER |= TIM_CCER_CC1E; // OC1 enabled
 
     TIM5->CCMR1 |= TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2; //PWM mode 1
     TIM5->CCMR1 |= TIM_CCMR1_OC2PE; // preload enabled for CCR2
-    TIM5->CCR2 = 1280; // start with OC2 (OE) held at 1 (off)
+    TIM5->CCR2 = 640; // start with OC2 (OE) held at 1 (off)
     TIM5->CCER |= TIM_CCER_CC2E; // OC2 enabled
 
     TIM5->PSC = PRESCALE; // scale down for testing
@@ -233,8 +222,8 @@ static void initTimers(void) {
     NVIC_EnableIRQ(TIM5_IRQn);
 
     // Start the timer
-    TIM8->CR1 |= TIM_CR1_CEN;
-    TIM5->CCR2 = 1280 - BRIGHTNESS; // put the first value in CCR2 preload it will be loaded at the first UEV
+    TIM3->CR1 |= TIM_CR1_CEN;
+    TIM5->CCR2 = 640 - BRIGHTNESS; // put the first value in CCR2 preload it will be loaded at the first UEV
 }
 
 

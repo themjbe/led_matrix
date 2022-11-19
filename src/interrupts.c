@@ -15,11 +15,11 @@ void TIM5_IRQHandler(void) {
     }
     bit++;
     bit &=  0x7;
-    TIM5->CCR2 = 1280 - (BRIGHTNESS * (1 << bit)); // set the duty cycle of the NEXT ~OE pulse
+    TIM5->CCR2 = 640 - (BRIGHTNESS * (1 << bit)); // set the duty cycle of the NEXT ~OE pulse
 }
 
-void DMA2_Stream2_IRQHandler(void) {
-    DMA2->LIFCR |= DMA_LIFCR_CTCIF2; // make sure the interrupt flag is clear
+void DMA1_Stream4_IRQHandler(void) {
+    DMA1->HIFCR |= DMA_HIFCR_CTCIF4; // make sure the interrupt flag is clear
     frame_count++;
     busyFlag = 0; // main loop watches this flag to know when to fill up the next buffer
 }

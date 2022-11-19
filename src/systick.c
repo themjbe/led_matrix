@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include "stm32f446xx.h"
+#include "stm32f411xe.h"
 
 volatile uint32_t ticks;
 

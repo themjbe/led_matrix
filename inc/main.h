@@ -4,7 +4,7 @@
 
 #define row_mask 0x1F
 
-#define PRESCALE 0
+#define PRESCALE 5
 
 #define BITS_PER_PIXEL 24
 #define BITS_PER_CHANNEL 8
