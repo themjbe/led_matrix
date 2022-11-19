@@ -28,7 +28,7 @@ int main(void) {
         start_time = millis();
         while(busyFlag);
         busyFlag = 1;
-        current_buffer = DMA1_Stream4->CR | DMA_SxCR_CT;
+        current_buffer = DMA2_Stream3->CR | DMA_SxCR_CT;
         nextBuffer = current_buffer ? buffer2 : buffer1;
         while(busyFlag);
         busyFlag = 1;
@@ -51,7 +51,7 @@ static void init(void) {
     // Set up any input/output pins
     initGPIO();
     initDMA();
-    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM5_STOP;
+    DBGMCU->APB2FZ |= DBGMCU_APB2_FZ_DBG_TIM1_STOP;
     DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_TIM3_STOP;
     initTimers();
     busyFlag = 1;
@@ -99,7 +99,7 @@ static void initGPIO(void) {
 
 static void initDMA(void) {
     /*
-     * Channel 5
+     * Channel 6
      * Double Buffer
      * Very high priority
      * Memory Inc
@@ -107,23 +107,23 @@ static void initDMA(void) {
      * Memory to Peripheral
      */
 
-    RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
 
-    DMA1_Stream4->CR |= (5<<DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DBM | DMA_SxCR_PL_0 | DMA_SxCR_PL_1 | DMA_SxCR_MINC | DMA_SxCR_DIR_0;
-    DMA1_Stream4->NDTR = 0x4000; // 64 col, 8 Bits per colour channel, 32 rows
+    DMA2_Stream3->CR |= (6<<DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DBM | DMA_SxCR_PL_0 | DMA_SxCR_PL_1 | DMA_SxCR_MINC | DMA_SxCR_DIR_0;
+    DMA2_Stream3->NDTR = 0x4000; // 64 col, 8 Bits per colour channel, 32 rows
     //DMA1_Stream4->PAR = 0;
-    DMA1_Stream4->PAR = (uint32_t)&(GPIOC->ODR);
-    DMA1_Stream4->M0AR = (uint32_t)buffer1;
-    DMA1_Stream4->M1AR = (uint32_t)buffer2;
-    DMA1_Stream4->FCR |= DMA_SxFCR_DMDIS; // turn on the FIFO
-    DMA1->HIFCR |= DMA_HIFCR_CTEIF4; // make sure the interrupt flag is clear
-    DMA1->HIFCR |= DMA_HIFCR_CTCIF4; // make sure the interrupt flag is clear
-    DMA1_Stream4->CR |= DMA_SxCR_TCIE; // enable the transfer complete interrupt
-    DMA1_Stream4->CR |= DMA_SxCR_TEIE; // enable the transfer complete interrupt
+    DMA2_Stream3->PAR = (uint32_t)&(GPIOC->ODR);
+    DMA2_Stream3->M0AR = (uint32_t)buffer1;
+    DMA2_Stream3->M1AR = (uint32_t)buffer2;
+    DMA2_Stream3->FCR |= DMA_SxFCR_DMDIS; // turn on the FIFO
+    //DMA2->LIFCR |= DMA_LIFCR_CTEIF3; // make sure the interrupt flag is clear
+    DMA2->LIFCR |= DMA_LIFCR_CTCIF3; // make sure the interrupt flag is clear
+    DMA2_Stream3->CR |= DMA_SxCR_TCIE; // enable the transfer complete interrupt
+    //DMA2_Stream3->CR |= DMA_SxCR_TEIE; // enable the transfer complete interrupt
 
-    NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+    NVIC_EnableIRQ(DMA2_Stream3_IRQn);
 
-    DMA1_Stream4->CR |= DMA_SxCR_EN; // enable the stream
+    DMA2_Stream3->CR |= DMA_SxCR_EN; // enable the stream
 }
 
 static void initClock(void) {
@@ -166,64 +166,64 @@ static void initClock(void) {
 }
 
 static void initTimers(void) {
-    // Timer 3, running 9Mhz 50% duty cycle
+    // Timer 1, running 9Mhz 50% duty cycle
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
     
+    GPIOA->MODER |= GPIO_MODER_MODE8_1; // PA8 in AF mode
+    GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_0 | GPIO_OSPEEDR_OSPEED8_1; // high speed
+    GPIOA->AFR[1] |= (0x1U << GPIO_AFRH_AFSEL8_Pos); // AF1 for PA8 is TIM1_CH1
+
+    RCC->APB2ENR |= RCC_APB2ENR_TIM1EN;
+    
+    TIM1->ARR = 9;
+    TIM1->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2; //PWM mode 1
+    TIM1->DIER |= TIM_DIER_CC1DE; // DMA request on CH1 (falling edge of clock)
+    TIM1->CCR1 = 5;
+    TIM1->CCER |= TIM_CCER_CC1E; // OC1 enabled
+
+    TIM1->BDTR |= TIM_BDTR_MOE; // Main output enabled.. if this isn't set, there is no output on the pins!
+
+    TIM1->PSC = PRESCALE; // scale down for testing
+    TIM1->EGR |= TIM_EGR_UG; // trigger a UEV to update the preload, auto-reload, and capture-compare shadow registers
+    TIM1->SR = 0;
+    TIM1->CR2 |= TIM_CR2_MMS_1; // Master mode - update
+
+    // Timer 3
+    // LAT on CH1, output to PC6
+    // OE on CH2, output to PC7
     GPIOC->MODER |= GPIO_MODER_MODE6_1; // PC6 in AF mode
     GPIOC->OSPEEDR |= GPIO_OSPEEDR_OSPEED6_0 | GPIO_OSPEEDR_OSPEED6_1; // high speed
     GPIOC->AFR[0] |= (0x2U << GPIO_AFRL_AFSEL6_Pos); // AF2 for PC6 is TIM3_CH1
 
+    GPIOC->MODER |= GPIO_MODER_MODE7_1; // PC7 in AF mode
+    GPIOC->OSPEEDR |= GPIO_OSPEEDR_OSPEED7_0 | GPIO_OSPEEDR_OSPEED1_1; // high speed
+    GPIOC->AFR[0] |= (0x2U << GPIO_AFRL_AFSEL7_Pos); // AF2 for PC7 is TIM3_CH2
+
     RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
     
-    TIM3->ARR = 9;
+    //TIM5->SMCR |= TIM_SMCR_TS_0; // select ITR0 as the trigger input (for TIM5, this is TIM3)
+    TIM3->SMCR |= TIM_SMCR_SMS_2 | TIM_SMCR_SMS_1; // slave mode set to trigger mode
+    TIM3->ARR = 639;
     TIM3->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2; //PWM mode 1
-    TIM3->DIER |= TIM_DIER_CC1DE; // DMA request on CH1 (falling edge of clock)
-    TIM3->CCR1 = 5;
+    TIM3->CCR1 = 12;
     TIM3->CCER |= TIM_CCER_CC1E; // OC1 enabled
 
-    TIM3->BDTR |= TIM_BDTR_MOE; // Main output enabled.. if this isn't set, there is no output on the pins!
+    TIM3->CCMR1 |= TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2; //PWM mode 1
+    TIM3->CCMR1 |= TIM_CCMR1_OC2PE; // preload enabled for CCR2
+    TIM3->CCR2 = 640; // start with OC2 (OE) held at 1 (off)
+    TIM3->CCER |= TIM_CCER_CC2E; // OC2 enabled
 
     TIM3->PSC = PRESCALE; // scale down for testing
     TIM3->EGR |= TIM_EGR_UG; // trigger a UEV to update the preload, auto-reload, and capture-compare shadow registers
-    TIM3->SR = 0;
-    TIM3->CR2 |= TIM_CR2_MMS_1; // Master mode - update
+    TIM3->SR = 0; // clear the status flags
+    TIM3->DIER |= TIM_DIER_UIE; // enable TIM5 interrupt on UEV
+    TIM3->CNT = 15;
 
-    // Timer 5
-    // LAT on CH1, output to PA0
-    // OE on CH2, output to PA1 
-    GPIOA->MODER |= GPIO_MODER_MODE0_1; // PA0 in AF mode
-    GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED0_0 | GPIO_OSPEEDR_OSPEED0_1; // high speed
-    GPIOA->AFR[0] |= (0x2U << GPIO_AFRL_AFSEL0_Pos); // AF2 for PA0 is TIM5_CH1
-
-    GPIOA->MODER |= GPIO_MODER_MODE1_1; // PA1 in AF mode
-    GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED1_0 | GPIO_OSPEEDR_OSPEED1_1; // high speed
-    GPIOA->AFR[0] |= (0x2U << GPIO_AFRL_AFSEL1_Pos); // AF2 for PA1 is TIM5_CH2
-
-    RCC->APB1ENR |= RCC_APB1ENR_TIM5EN;
-    
-    TIM5->SMCR |= TIM_SMCR_TS_0; // select ITR1 as the trigger input (for TIM5, this is TIM3)
-    TIM5->SMCR |= TIM_SMCR_SMS_2 | TIM_SMCR_SMS_1; // slave mode set to trigger mode
-    TIM5->ARR = 639;
-    TIM5->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2; //PWM mode 1
-    TIM5->CCR1 = 12;
-    TIM5->CCER |= TIM_CCER_CC1E; // OC1 enabled
-
-    TIM5->CCMR1 |= TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2; //PWM mode 1
-    TIM5->CCMR1 |= TIM_CCMR1_OC2PE; // preload enabled for CCR2
-    TIM5->CCR2 = 640; // start with OC2 (OE) held at 1 (off)
-    TIM5->CCER |= TIM_CCER_CC2E; // OC2 enabled
-
-    TIM5->PSC = PRESCALE; // scale down for testing
-    TIM5->EGR |= TIM_EGR_UG; // trigger a UEV to update the preload, auto-reload, and capture-compare shadow registers
-    TIM5->SR = 0; // clear the status flags
-    TIM5->DIER |= TIM_DIER_UIE; // enable TIM5 interrupt on UEV
-    TIM5->CNT = 15;
-
-    NVIC_EnableIRQ(TIM5_IRQn);
+    NVIC_EnableIRQ(TIM3_IRQn);
 
     // Start the timer
-    TIM3->CR1 |= TIM_CR1_CEN;
-    TIM5->CCR2 = 640 - BRIGHTNESS; // put the first value in CCR2 preload it will be loaded at the first UEV
+    TIM1->CR1 |= TIM_CR1_CEN;
+    TIM3->CCR2 = 640 - BRIGHTNESS; // put the first value in CCR2 preload it will be loaded at the first UEV
 }
 
 
